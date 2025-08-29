@@ -45,7 +45,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
 
       const bodyText = msg.postText || msg.fullText || "";
-      const lang = msg.langGuess && msg.langGuess !== "auto" ? msg.langGuess : "auto";
+
+      // Nouvelle détection de langue via API
+      const lang = await detectLanguage(bodyText.slice(0, 500), apiKey);
 
       const languageDirective =
         lang === "es" ? "Responde en español." :
@@ -64,11 +66,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         languageDirective,
         "",
         "POST TEXT:",
-        bodyText,
-        "",
-        "TASK:",
-        "Write a single professional LinkedIn comment that validates the author's point, extends it with internal linking/site architecture expertise (authority distribution, topical authority, ROI).",
-        "One emoji max (optional). End with 4–5 relevant hashtags; the last must always be #djagryn."
+        bodyText
       ].join("\n");
 
       try {
@@ -89,7 +87,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log("[BG] Will call OpenRouter. Text length:", (msg.fullText || "").length);
         const maxLog = 3000;
         const preview = (msg.fullText || "").slice(0, maxLog);
-        console.debug("[BG] TEXT PAYLOAD (preview):\n", preview);
+        console.debug("[BG] TEXT PAYLOAD (preview):\n", userContent);
 
         const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
@@ -103,7 +101,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             model,
             messages: [
               { role: "system", content: systemPrompt },
-              { role: "user", content: `FULL POST:\n${msg.fullText}\n\nTASK: Short, natural LinkedIn comment (<= ~60 words).` }
+              { role: "user", content: systemPrompt + "\n\n" + userContent }
             ],
             temperature: 0.5,
             top_p: 0.95
@@ -117,6 +115,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         const data = await res.json();
         const draft = data?.choices?.[0]?.message?.content?.trim?.() || "";
+        console.debug("[BG] TEXT REPONSE :\n", draft);
         sendResponse({ ok:true, draft });
       } catch (e) {
         console.error("[BG] NETWORK_ERROR", e);
@@ -133,6 +132,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // IMPORTANT pour les réponses async
   return true;
 });
+
+async function detectLanguage(text, apiKey) {
+  if (!text || !apiKey) return 'auto';
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": DEFAULTS.referer,
+        "X-Title": DEFAULTS.title
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-maverick", // Modèle rapide et peu coûteux
+        messages: [
+          {
+            role: "system",
+            content: "Detect the main language of the text. Respond with only the 2-letter ISO code: 'en' for English, 'fr' for French, 'es' for Spanish. If it's another language or mixed, respond 'auto'."
+          },
+          { role: "user", content: text }
+        ],
+        temperature: 0.1,
+        max_tokens: 5
+      })
+    });
+    if (!res.ok) return 'auto';
+    const data = await res.json();
+    const lang = data?.choices?.[0]?.message?.content?.trim()?.toLowerCase() || 'auto';
+    console.log("[BG] Language detected by API:", lang);
+    return ['en', 'fr', 'es'].includes(lang) ? lang : 'auto';
+  } catch (e) {
+    console.warn("[BG] Language detection API call failed:", e);
+    return 'auto'; // Fallback en cas d'erreur
+  }
+}
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "generate-comment") return;

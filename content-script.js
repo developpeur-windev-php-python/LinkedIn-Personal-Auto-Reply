@@ -82,34 +82,23 @@ function extractPostOnlyText(root) {
   return stripUiNoise(txt);
 }
 
-// 3) Heuristique simple de langue (ES si “¿/¡” ou tokens)
-function guessLangSimple(s) {
-  const lower = s.toLowerCase();
-
-  // +2 si ponctuation espagnole
-  const esBonus = /[¿¡]/.test(s) ? 2 : 0;
-  const esHits = esBonus + (lower.match(/\b(cómo|sospechas|enlaces|externos|dominios|ancla|desde|aprende|auditoría|sitio|web|gracias|curso|rastreo)\b/g) || []).length;
-
-  // +1 si diacritiques FR
-  const frBonus = /[àâçéèêëîïôùûüÿœ]/i.test(s) ? 1 : 0;
-  const frHits = frBonus + (lower.match(/\b(pourquoi|comment|audit|site|lien|ancre|depuis|apprendre|maillage|autorité|mise à jour|noyau|seo|marque)\b/g) || []).length;
-
-  const enHits = (lower.match(/\b(why|how|audit|site|link|anchor|since|learn|course|tip|website|crawl|equity|internal linking|brand|hack|steps)\b/g) || []).length;
-
-  if (esHits > frHits && esHits > enHits) return "es";
-  if (frHits > esHits && frHits > enHits) return "fr";
-  if (enHits > esHits && enHits > frHits) return "en";
-  return "auto";
-}
 
 // ---------- DOM helpers ----------
+let lastActiveEditable = null;
+
 function getActiveEditable() {
   const ae = document.activeElement;
-  if (!ae) return null;
-  const isEditable =
-    (ae.getAttribute("contenteditable") === "true" || ae.isContentEditable) &&
-    (ae.getAttribute("role") === "textbox" || ae.closest('[role="textbox"]'));
-  return isEditable ? ae : null;
+  if (ae && ae.closest && !ae.closest('body')) { // Ignore body focus
+    const isEditable =
+      (ae.getAttribute("contenteditable") === "true" || ae.isContentEditable) &&
+      (ae.getAttribute("role") === "textbox" || ae.closest('[role="textbox"]'));
+    if (isEditable) return ae;
+  }
+  // Fallback to the last known editable element
+  if (lastActiveEditable && document.body.contains(lastActiveEditable)) {
+    return lastActiveEditable;
+  }
+  return null;
 }
 
 // Elargit la recherche du conteneur du post (LinkedIn change souvent)
@@ -168,13 +157,14 @@ async function generateForActiveBox() {
   const fullText = extractPostText(root);
 
   const postText = extractPostOnlyText(root) || fullText;
-  const langGuess = guessLangSimple(postText);
   console.log("[CS] POST-ONLY TEXT (preview):\n", postText.slice(0, 1000));
-  console.log("[CS] LANG GUESS:", langGuess);
 
 
   const snippet = fullText.slice(0, 400);
   console.log("[CS] URN:", urn, "textLen:", fullText.length);
+
+  // Affiche un message temporaire
+  insertTextAtCaret(box, "Réponse en cours...");
 
   // NEW: log du texte envoyé (aperçu tronqué pour la console)
   const maxLog = 3000; // ajuste à ton goût
@@ -189,10 +179,11 @@ async function generateForActiveBox() {
     urn,
     fullText,
     postText,      // <-- nouveau
-    langGuess,     // <-- nouveau
     contextSnippet: snippet
   });
   if (!resp) return; // background KO
+
+  console.log("[CS] Received from background:", resp);
 
   if (!resp.ok) {
     console.warn("[CS] BG error:", resp);
@@ -208,17 +199,25 @@ async function generateForActiveBox() {
 
 function insertTextAtCaret(editable, text) {
   editable.focus();
+
+  // Vider le contenu existant de manière fiable
+  let targetNode = editable.querySelector('p') || editable;
+  while (targetNode.firstChild) {
+    targetNode.removeChild(targetNode.firstChild);
+  }
+
+  // Insérer le nouveau texte et placer le curseur à la fin
+  const textNode = document.createTextNode(text);
+  targetNode.appendChild(textNode);
+
+  // Déplacer le curseur à la fin du texte inséré
+  const range = document.createRange();
   const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) { editable.textContent = text; return; }
-  const range = sel.getRangeAt(0);
-  range.deleteContents();
-  const node = document.createTextNode(text);
-  range.insertNode(node);
+  range.setStart(targetNode, 1);
+  range.collapse(true);
   sel.removeAllRanges();
-  const r = document.createRange();
-  r.setStartAfter(node);
-  r.collapse(true);
-  sel.addRange(r);
+  sel.addRange(range);
+  editable.focus(); // Re-focus pour s'assurer que le curseur est visible
 }
 
 // ---------- UI mini-contrôles ----------
@@ -290,6 +289,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-document.addEventListener("focusin", () => {
-  if (getActiveEditable()) showToast("Alt+G pour générer un brouillon.");
+document.addEventListener("focusin", (e) => {
+  const target = e.target;
+  if (target && (target.getAttribute("contenteditable") === "true" || target.closest('[role="textbox"]'))) {
+    lastActiveEditable = target;
+    showToast("Alt+G pour générer un brouillon.");
+  }
 });
