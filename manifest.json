@@ -1,0 +1,26 @@
+{
+    "manifest_version": 3,
+    "name": "LinkedIn Personal Auto-Reply (Draft Only)",
+    "version": "0.1.2",
+    "description": "Brouillon auto pour commentaires LinkedIn via OpenRouter. Usage perso, validation manuelle.",
+    "permissions": ["storage", "activeTab", "scripting", "tabs"],
+    "host_permissions": ["https://*.linkedin.com/*", "https://openrouter.ai/*"],
+    "background": { "service_worker": "background.js", "type": "module" },
+    "action": { "default_title": "LI Draft", "default_popup": "popup.html" },
+    "options_page": "options.html",
+    "commands": {
+      "generate-comment": {
+        "suggested_key": { "default": "Alt+G" },
+        "description": "Générer un brouillon pour la zone commentaire active"
+      }
+    },
+    "content_scripts": [
+      {
+        "matches": ["https://*.linkedin.com/*"],
+        "js": ["content-script.js"],
+        "run_at": "document_idle",
+        "all_frames": true
+      }
+    ]
+  }
+  
