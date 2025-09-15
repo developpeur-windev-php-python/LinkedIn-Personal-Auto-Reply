@@ -44,7 +44,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       
 
-      const bodyText = msg.postText || msg.fullText || "";
+      // Fonction pour nettoyer le texte des termes d'interface LinkedIn
+      function cleanLinkedInInterfaceTerms(text) {
+        const termsToRemove = [
+          "Post du fil d'actualité",
+          "commentaires",
+          "J'aime",
+          "Commenter",
+          "Republier",
+          "Envoyer",
+          "Ajouter un commentaire…",
+          "Ouvrir le clavier des émoticônes",
+          "Les plus pertinents est l'ordre actuellement sélectionné",
+          "Les plus pertinents",
+          "Il y a 1 heure",
+          "Visible de tous sur LinkedIn et en dehors",
+          "Suivre"
+        ];
+        
+        let cleanedText = text;
+        termsToRemove.forEach(term => {
+          const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          cleanedText = cleanedText.replace(regex, '');
+        });
+        
+        // Nettoyer les espaces multiples et les sauts de ligne en trop
+        cleanedText = cleanedText.replace(/\s+/g, ' ').trim();
+        
+        return cleanedText;
+      }
+
+      const rawText = msg.postText || msg.fullText || "";
+      const bodyText = cleanLinkedInInterfaceTerms(rawText);
 
       // Nouvelle détection de langue via API
       const lang = await detectLanguage(bodyText.slice(0, 500), apiKey);
