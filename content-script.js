@@ -88,16 +88,52 @@ let lastActiveEditable = null;
 
 function getActiveEditable() {
   const ae = document.activeElement;
-  if (ae && ae.closest && !ae.closest('body')) { // Ignore body focus
+  
+  // Vérifier l'élément actuellement focusé
+  if (ae && ae.closest && !ae.closest('body')) {
     const isEditable =
       (ae.getAttribute("contenteditable") === "true" || ae.isContentEditable) &&
       (ae.getAttribute("role") === "textbox" || ae.closest('[role="textbox"]'));
-    if (isEditable) return ae;
+    if (isEditable) {
+      lastActiveEditable = ae; // Sauvegarder pour plus tard
+      return ae;
+    }
   }
-  // Fallback to the last known editable element
+  
+  // Fallback vers le dernier élément éditable connu
   if (lastActiveEditable && document.body.contains(lastActiveEditable)) {
     return lastActiveEditable;
   }
+  
+  // Recherche élargie des zones de commentaire LinkedIn
+  const commentSelectors = [
+    // Sélecteurs pour les zones de commentaire
+    '[data-test-id="comments-comment-texteditor"] [contenteditable="true"]',
+    '.comments-comment-texteditor [contenteditable="true"]',
+    '[role="textbox"][contenteditable="true"]',
+    '.ql-editor[contenteditable="true"]',
+    // Sélecteurs pour les messages privés
+    '.msg-form__contenteditable[contenteditable="true"]',
+    '[data-test-id="msg-form"] [contenteditable="true"]',
+    // Sélecteurs génériques
+    '[contenteditable="true"][role="textbox"]',
+    '[contenteditable="true"].ql-editor'
+  ];
+  
+  for (const selector of commentSelectors) {
+    const elements = document.querySelectorAll(selector);
+    for (const el of elements) {
+      // Vérifier si l'élément est visible et interactif
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        console.log("[CS] Found fallback editable:", selector);
+        lastActiveEditable = el;
+        return el;
+      }
+    }
+  }
+  
+  console.log("[CS] No editable element found with any selector");
   return null;
 }
 
@@ -291,8 +327,15 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 document.addEventListener("focusin", (e) => {
   const target = e.target;
-  if (target && (target.getAttribute("contenteditable") === "true" || target.closest('[role="textbox"]'))) {
+  if (target && (
+    target.getAttribute("contenteditable") === "true" || 
+    target.closest('[role="textbox"]') ||
+    target.classList.contains('ql-editor') ||
+    target.closest('.comments-comment-texteditor') ||
+    target.closest('.msg-form__contenteditable')
+  )) {
     lastActiveEditable = target;
+    console.log("[CS] Focused on editable element:", target.className);
     showToast("Alt+G pour générer un brouillon.");
   }
 });
